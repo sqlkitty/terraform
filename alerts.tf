@@ -13,7 +13,7 @@ resource "azurerm_monitor_action_group" "ag" {
      azurerm_sql_database.example
    ]
 
-} 
+}
  
 # creates alert for max dtu 80%
 resource "azurerm_monitor_metric_alert" "alertdtu80" {

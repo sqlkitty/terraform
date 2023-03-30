@@ -19,7 +19,7 @@ resource "azurerm_sql_server" "example" {
   depends_on = [
     azurerm_resource_group.rg
   ]
-}
+} 
 
 # creates the azure sql db
 resource "azurerm_sql_database" "example" {
