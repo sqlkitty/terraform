@@ -6,7 +6,7 @@ resource "random_pet" "rg_name" {
 resource "azurerm_resource_group" "rg" {
   location = var.resource_group_location
   name     = random_pet.rg_name.id
-}
+} 
  
 # creates the azure sql server
 resource "azurerm_sql_server" "example" {
