@@ -14,7 +14,7 @@ resource "azurerm_monitor_action_group" "ag" {
    ]
 
 }
-
+ 
 # creates alert for max dtu 80%
 resource "azurerm_monitor_metric_alert" "alertdtu80" {
   name                = "db-DTUalertMax80"
