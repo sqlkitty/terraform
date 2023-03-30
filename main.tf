@@ -43,6 +43,9 @@ resource "azurerm_sql_firewall_rule" "example" {
   server_name         = azurerm_sql_server.example.name
   start_ip_address    = "0.0.0.0"
   end_ip_address      = "0.0.0.0"
+  depends_on = [
+     azurerm_sql_database.example
+   ]
 }
 
 
