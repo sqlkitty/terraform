@@ -46,7 +46,7 @@ resource "azurerm_sql_firewall_rule" "example" {
   depends_on = [
      azurerm_sql_database.example
    ]
-}
+} 
 
 
 
