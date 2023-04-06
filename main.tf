@@ -9,7 +9,7 @@ resource "azurerm_resource_group" "rg" {
 } 
  
 # creates the azure sql server
-resource "azurerm_sql_server" "example" {
+resource "azurerm_mssql_server" "example" {
   name                         = "sql-${azurerm_resource_group.rg.name}"
   resource_group_name          = random_pet.rg_name.id
   location                     = var.resource_group_location
@@ -22,29 +22,25 @@ resource "azurerm_sql_server" "example" {
 } 
 
 # creates the azure sql db
-resource "azurerm_sql_database" "example" {
+resource "azurerm_mssql_database" "example" {
   name                             = "db-${azurerm_resource_group.rg.name}"
-  resource_group_name              = random_pet.rg_name.id
-  location                         = var.resource_group_location
-  server_name                      = azurerm_sql_server.example.name
-  edition                          = "Basic"
-  collation                        = "SQL_Latin1_General_CP1_CI_AS"
+  server_id                        = azurerm_mssql_server.example.id
   create_mode                      = "Default"
-  requested_service_objective_name = "Basic"
+  sku_name                         = "Basic"
+  collation                        = "SQL_Latin1_General_CP1_CI_AS"
   depends_on = [
-     azurerm_sql_server.example
+     azurerm_mssql_server.example
    ]
 }
 
 # enables access to your db.  change out the IP to match your IP. 
-resource "azurerm_sql_firewall_rule" "example" {
+resource "azurerm_mssql_firewall_rule" "example" {
   name                = "my-ip"
-  resource_group_name = random_pet.rg_name.id
-  server_name         = azurerm_sql_server.example.name
-  start_ip_address    = "0.0.0.0"
-  end_ip_address      = "0.0.0.0"
+  server_id         = azurerm_mssql_server.example.id
+  start_ip_address    = "67.164.173.44"
+  end_ip_address      = "67.164.173.44"
   depends_on = [
-     azurerm_sql_database.example
+     azurerm_mssql_database.example
    ]
 } 
 
