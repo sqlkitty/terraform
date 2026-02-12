@@ -247,11 +247,11 @@ resource "azurerm_log_analytics_workspace" "example" {
     sku                 = "PerGB2018"
     retention_in_days   = 30
 }
+```
 
 ### Set Up Auditing
 
 This configuration audits all Azure SQL databases on the server in the same way and sends audit data to the Log Analytics Workspace.
-
 ```hcl
 resource "azurerm_monitor_diagnostic_setting" "example" {
     name                       = "ds-${azurerm_resource_group.rg.name}"
@@ -278,6 +278,7 @@ resource "azurerm_monitor_diagnostic_setting" "example" {
         ignore_changes = [log, metric]
     }
 }
+```
 
 Enable Extended Auditing (Database Level)
 ```hcl
@@ -285,6 +286,7 @@ resource "azurerm_mssql_database_extended_auditing_policy" "example" {
     database_id            = "${azurerm_mssql_server.example.id}/databases/master"
     log_monitoring_enabled = true
 }
+```
 
 Enable Extended Auditing (Server Level)
 ```hcl
@@ -292,6 +294,7 @@ resource "azurerm_mssql_server_extended_auditing_policy" "example" {
     server_id              = azurerm_mssql_server.example.id
     log_monitoring_enabled = true
 }
+```
 
 After creating these Terraform resources, run:
 
@@ -330,8 +333,8 @@ To modify audit action groups, you currently need PowerShell.
 ```hcl
 Get-AzSqlServerAudit -ResourceGroupName 'rg-hopeful-monkey' -Servername 'sql-rg-hopeful-monkey'
 
-```hcl
 Set Audit Action Groups (Schema & Security Only) Set-AzSqlServerAudit -ResourceGroupName 'rg-hopeful-monkey' ` -ServerName 'sql-rg-hopeful-monkey' ` -AuditActionGroup APPLICATION_ROLE_CHANGE_PASSWORD_GROUP, DATABASE_CHANGE_GROUP, ` DATABASE_OBJECT_CHANGE_GROUP, DATABASE_OBJECT_OWNERSHIP_CHANGE_GROUP, ` DATABASE_OBJECT_PERMISSION_CHANGE_GROUP, ` DATABASE_OWNERSHIP_CHANGE_GROUP, ` DATABASE_PERMISSION_CHANGE_GROUP, DATABASE_PRINCIPAL_CHANGE_GROUP, ` DATABASE_PRINCIPAL_IMPERSONATION_GROUP, ` DATABASE_ROLE_MEMBER_CHANGE_GROUP, ` SCHEMA_OBJECT_CHANGE_GROUP, SCHEMA_OBJECT_OWNERSHIP_CHANGE_GROUP, ` SCHEMA_OBJECT_PERMISSION_CHANGE_GROUP, USER_CHANGE_PASSWORD_GROUP
+```
 
 For now, I’m keeping the defaults so I can monitor all database activity. I’ll update this post once I figure out how to configure audit action groups using Terraform.
 
@@ -369,6 +372,7 @@ Example 1: Busiest Databases
 ```hcl
 AzureDiagnostics
 | summarize QueryCountByDB = count() by database_name_s
+```
 
 Example 2: Detailed Activity in the Last Day
 ```hcl
@@ -387,4 +391,4 @@ AzureDiagnostics
     additional_information_s,
     data_sensitivity_information_s
 | order by event_time_t desc
-
+```
