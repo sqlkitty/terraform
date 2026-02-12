@@ -653,4 +653,255 @@ module "azuresqlserver" {
 
 Before applying this, you must run terraform init to install the module.
 
-Conclusion Creating a Terraform module for Azure SQL DB empowers you to abstract and reuse infrastructure components effectively. Modularizing your infrastructure code facilitates easier maintenance, scalability, and consistency across deployments.
+
+
+# Terraform Elastic Jobs
+
+Depending on whether you have an elastic pool or want one, you can leave out the pool part. However, you will need an Azure SQL db to hold the jobs in the elastic agent. So here, I will create a pool and a server. You can put the db on an existing server in an existing resource group, too, if you want. I’m creating a new resource group to delete after testing, an Azure SQL Server, an elastic pool, and an Azure SQL db. You must have the SQL db, you can use existing resources for everything else.
+
+Note: You will need at least a capacity of 50 in an elastic pool or an S1 if using a database outside of a pool. These are the minimum requirements for an Elastic Agent with an Azure SQL Database.
+
+```
+resource "azurerm_resource_group" "elasticjobrg" {
+  location = var.resource_group_location
+  name     = "elasticjobrg"
+} 
+
+resource "azurerm_mssql_server" "server" {
+    name                         = "elastic-${azurerm_resource_group.elasticjobrg.name}"
+    resource_group_name          = azurerm_resource_group.elasticjobrg.name
+    location                     = azurerm_resource_group.rg.location
+    version                      = "12.0"
+    administrator_login          = "adminuser"
+    administrator_login_password = "password@123!"
+    azuread_administrator {
+      login_username = "yourgroup/user"
+      object_id      = "itsobjectid"
+    }
+}
+resource "azurerm_mssql_elasticpool" "example" {
+  name                = "sqlelasticpool"
+  resource_group_name = azurerm_resource_group.elasticjobrg.name
+  location            = azurerm_resource_group.rg.location
+  server_name         = azurerm_mssql_server.server.name
+
+  sku {
+    name     = "StandardPool"
+    tier     = "Standard"
+    capacity = 50
+  }
+
+   max_size_gb = 50
+
+  per_database_settings {
+    min_capacity = 0
+    max_capacity = 50
+  }
+}
+
+resource "azurerm_mssql_database" "database" {
+    name              = "dbelastic-${azurerm_resource_group.elasticjobrg.name}"
+    server_id         = azurerm_mssql_server.server.id
+    collation         = "SQL_Latin1_General_CP1_CI_AS"
+    /*
+    this is getting set with the pool
+    sku_name          = "S1"
+    max_size_gb       = 10  # Adjust this value as needed
+    */
+    elastic_pool_id   = azurerm_mssql_elasticpool.example.id
+}
+
+resource "azurerm_mssql_firewall_rule" "azure-services-rule" {
+  name                = "allow-azure-services"
+  server_id           = azurerm_mssql_server.server.id
+  start_ip_address    = "0.0.0.0"
+  end_ip_address      = "0.0.0.0"
+  depends_on = [
+     azurerm_mssql_server.server
+   ]
+} 
+```
+
+So now we have the basics setup, so we can create the agent and jobs.
+
+### Creating a Managed Identity
+
+We also need a managed identity so the Elastic Job Agent can access the databases, including its own db and any databases you want to run jobs against.
+
+```
+resource "azurerm_user_assigned_identity" "managed_identity" {
+  name                = "ElasticAgentJobsManagedID"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.elasticjobrg.name
+}
+```
+
+Then, we need to add it to our db. I’m giving it owner as I want it to read/write and execute stored procs. I trust it’s not going to be used for elevated purposes. I’m going to have it run Ola stats updates and index maintenance. You might wonder why it needs db_owner, and I wondered about this, too. I tried with lower perms, but it couldn’t see certain tables. I needed it to see with lesser perms, which was very odd. Note you need to connect with an AD (Entra) account to add this, you can’t add it if you are logged in as the server admin.
+
+```sql
+CREATE USER ElasticAgentJobsManagedID FROM EXTERNAL PROVIDER;
+ALTER ROLE db_owner ADD MEMBER ElasticAgentJobsManagedID;
+```
+
+You will also need to add this to master db if you are wanting the job to run against all the dbs on the same server. Otherwise, you will get an error — Login failed for user ‘<token-identified principal>’.
+
+```sql
+CREATE USER ElasticAgentJobsManagedID FROM EXTERNAL PROVIDER;
+```
+
+You will also need the Ola scripts in whatever databases you want to run the job in.
+
+You can get these [from Ola](https://ola.hallengren.com/sql-server-index-and-statistics-maintenance.html) directly.
+
+## Creating the Elastic Job Agent
+
+Here’s where we need to add azapi_resource to the providers. For your reference, here is my providers.tf file.
+
+```
+terraform {
+  required_version = ">=0.12"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = ">= 3.74.0"
+    }
+
+    azapi = {
+      source = "Azure/azapi"
+    }
+  }
+} 
+
+provider "azurerm" {
+  features {
+  }
+}
+
+provider "azapi" {
+}
+```
+
+Now, I will create the Elastic Job Agent. This will create elastic jobs agent with default JA100 setting 
+
+```
+resource "azapi_resource" "elasticjobagent" {
+  type = "Microsoft.Sql/servers/jobAgents@2023-05-01-preview"
+  name = "elasticagent-${azurerm_resource_group.elasticjobrg.name}"
+  location = azurerm_resource_group.rg.location
+  parent_id = azurerm_mssql_server.server.id
+  identity {
+    type = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.managed_identity.id]
+  }
+  body = jsonencode({
+    properties = {
+      databaseId = azurerm_mssql_database.database.id
+    }    
+  })
+}
+```
+
+I will also need to set up a target group and add servers and/or databases to it, so those will have jobs executed against them. You can include or exclude members. I have more info on that in the other posts referenced at the top of this post. Microsoft provides guidance on the parameters in members [here](https://learn.microsoft.com/en-us/azure/templates/microsoft.sql/servers/jobagents/targetgroups?pivots=deployment-language-terraform#jobtarget-2).
+
+```
+resource "azapi_resource" "elasticjobstargetgroups" {
+  type = "Microsoft.Sql/servers/jobAgents/targetGroups@2023-05-01-preview"
+  name = "AzureSQLDBs"
+  parent_id = azapi_resource.elasticjobagent.id
+  body = jsonencode({
+    properties = {
+      members = [
+        {
+          /* use this if your db is in an elastic pool */ 
+          elasticPoolName = azurerm_mssql_elasticpool.example.name  
+          membershipType = "Include"  
+          type = "SqlElasticPool" 
+          / * if no elastic pool, use only serverName */
+          serverName = azurerm_mssql_server.server.name
+        }
+      ]
+    }
+  })
+}
+```
+
+## Creating Jobs
+
+We are job creators! Or at least creators of elastic jobs.
+
+This will create a job that will run once a day at 23:00 UTC. Make sure to schedule the startTime for the future or it will kick off right away and then at it's scheduled time, as well. 
+
+```
+resource "azapi_resource" "job" {
+  type = "Microsoft.Sql/servers/jobAgents/jobs@2023-05-01-preview"
+  name = "OlaStatsUpdateJob"
+  parent_id = azapi_resource.elasticjobagent.id
+  body = jsonencode({
+    properties = {
+      description = "Runs ola stats update only on all dbs in the target group"
+      schedule = {
+        enabled: true
+        startTime: "2024-04-16T23:00:00Z"
+        endTime: "9999-12-31T11:59:59Z"
+        interval: "P1D"
+        type: "Recurring"
+      }
+    }
+  })
+}
+```
+
+And this will add two steps to it. Note that you don’t specify the step number on the additional steps after step 1 because it will error out. If you add a stepid to any step after the first one, you will get an error.
+
+Also, don’t mess around with the spacing on the SQL in the value parameter. It never works out well for me. Yes, it looks messy, but if I rearrange it, it tends to break the job.
+
+```
+resource "azapi_resource" "jobstep1" {
+  type = "Microsoft.Sql/servers/jobAgents/jobs/steps@2023-05-01-preview"
+  name = "OlaStatsUpdateStep"
+  parent_id = azapi_resource.job.id
+  body = jsonencode({
+    properties = {
+      action = {
+        source = "Inline"
+        type = "TSql"
+        value = "EXECUTE [dbo].[IndexOptimize]\n            @Databases = 'USER_DATABASES' ,\n            @FragmentationLow = NULL ,\n            @FragmentationMedium = NULL ,\n            @FragmentationHigh = NULL ,\n            @UpdateStatistics = 'ALL' ,\n            @LogToTable = 'Y';"
+      }
+      stepId = 1
+      targetGroup = azapi_resource.elasticjobstargetgroups.id
+    }
+  })
+}
+
+resource "azapi_resource" "jobstep2" {
+  type = "Microsoft.Sql/servers/jobAgents/jobs/steps@2023-05-01-preview"
+  name = "OlaCommandLogCleanupStep"
+  parent_id = azapi_resource.job.id
+  body = jsonencode({
+    properties = {
+      action = {
+        source = "Inline"
+        type = "TSql"
+        value = "DELETE FROM [dbo].[CommandLog]\n WHERE StartTime <= DATEADD(DAY, -30, GETDATE());"
+      }
+      targetGroup = azapi_resource.elasticjobstargetgroups.id
+    }
+  })
+}
+```
+
+That’s all there is to it. I know it might seem like a lot at first glance, but if you’ve set up an Elastic Job Agent and jobs before, it’s not too bad, or if you are familiar with Terraform, it’s quite straightforward.
+
+## Checking on Your Job
+
+You can see executions of your job in the Azure portal, but it’s difficult to impossible to see any error messages there.
+
+It’s better to use a SQL query while connected to your agent db. Here’s [more on troubleshooting Elastic Jobs](https://techcommunity.microsoft.com/t5/azure-sql-blog/troubleshooting-common-issues-with-elastic-jobs-in-azure-sql/ba-p/1180766) and different errors.
+
+```sql
+SELECT *  
+FROM jobs.job_executions  
+ORDER BY start_time DESC 
+```
+
