@@ -15,14 +15,15 @@ I did it like this. Is it the right way? Maybe. I'm giving you my steps so you k
 
 ### Most Common Terraform Commands
 
-terraform init – Initialize the working directory, download providers, and set up the backend. 
-terraform validate – Check the configuration for syntax errors. 
-terraform fmt – Format Terraform files into standard style. 
-terraform plan – Show what changes Terraform will make without applying them. 
-terraform apply – Apply the planned changes to create or update resources. 
-terraform destroy – Remove all resources defined in the configuration. 
-terraform output – Display output values from the configuration. 
-terraform state list – List all resources Terraform is tracking. 
+* terraform init – Initialize the working directory, download providers, and set up the backend. 
+* terraform validate – Check the configuration for syntax errors. 
+* terraform fmt – Format Terraform files into standard style. 
+* terraform plan – Show what changes Terraform will make without applying them. 
+* terraform apply – Apply the planned changes to create or update resources. 
+* terraform destroy – Remove all resources defined in the configuration. 
+* terraform output – Display output values from the configuration. 
+* terraform state list – List all resources Terraform is tracking. 
+
 But I mainly use a subset of these.
 
 ### Executing Terraform Commands
