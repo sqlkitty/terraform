@@ -223,3 +223,168 @@ resource "azurerm_monitor_metric_alert" "alertdtu80" {
 Once I'm done creating all these Terraform resources in files, I run `terraform apply` in the terminal. Then, once I'm happy with the tf files and they've all applied correctly, I will use either VS Code or GitHub Desktop to commit and push them to GitHub.
 
 Now I will receive an email if this threshold is crossed. Hopefully, no more someone telling me there's a problem before I know there is a problem. I may add more alerts, but for now, these basic ones will cover many of the issues that may come up in Azure SQL Database.
+
+
+
+### Set Up Auditing
+
+Now that you have your Azure **SQL** Server in place (if you followed the week 3 blog post), you can add auditing to it.
+
+First, you will need a Log Analytics Workspace to store audit data. I chose Log Analytics, but you can also choose Storage or Event Hub.
+
+I love Log Analytics because:
+
+It’s easy to query data with Kusto
+
+You can centralize all your database audit data in one workspace per subscription
+
+Create a Log Analytics Workspace
+```hcl
+resource "azurerm_log_analytics_workspace" "example" {
+    name                = "law-${azurerm_resource_group.rg.name}"
+    location            = var.resource_group_location
+    resource_group_name = random_pet.rg_name.id
+    sku                 = "PerGB2018"
+    retention_in_days   = 30
+}
+
+### Set Up Auditing
+
+This configuration audits all Azure SQL databases on the server in the same way and sends audit data to the Log Analytics Workspace.
+
+```hcl
+resource "azurerm_monitor_diagnostic_setting" "example" {
+    name                       = "ds-${azurerm_resource_group.rg.name}"
+    target_resource_id         = "${azurerm_mssql_server.example.id}/databases/master"
+    log_analytics_workspace_id = azurerm_log_analytics_workspace.example.id
+
+    enabled_log {
+    category = "SQLSecurityAuditEvents"
+
+    retention_policy {
+        enabled = false
+        }
+    }
+
+    metric {
+        category = *AllMetrics*
+
+        retention_policy {
+        enabled = false
+        }
+    }
+
+    lifecycle {
+        ignore_changes = [log, metric]
+    }
+}
+
+Enable Extended Auditing (Database Level)
+```hcl
+resource "azurerm_mssql_database_extended_auditing_policy" "example" {
+    database_id            = "${azurerm_mssql_server.example.id}/databases/master"
+    log_monitoring_enabled = true
+}
+
+Enable Extended Auditing (Server Level)
+```hcl
+resource "azurerm_mssql_server_extended_auditing_policy" "example" {
+    server_id              = azurerm_mssql_server.example.id
+    log_monitoring_enabled = true
+}
+
+After creating these Terraform resources, run:
+
+terraform apply
+
+Once everything applies successfully:
+
+Commit your Terraform files
+
+Push them to GitHub (via VS Code or GitHub Desktop)
+
+### Configure Auditing
+
+### Default Audit Action Groups
+
+Azure SQL auditing collects everything happening in the database by default with these audit action groups:
+
+BATCH_COMPLETED_GROUP
+
+SUCCESSFUL_DATABASE_AUTHENTICATION_GROUP
+
+FAILED_DATABASE_AUTHENTICATION_GROUP
+
+For now, I’m leaving my audit action groups as default because I want to:
+
+See all queries hitting the databases
+
+Analyze them for performance improvements
+
+Identify unused objects
+
+To modify audit action groups, you currently need PowerShell.
+
+### Get Current Audit Action Groups
+
+```hcl
+Get-AzSqlServerAudit -ResourceGroupName 'rg-hopeful-monkey' -Servername 'sql-rg-hopeful-monkey'
+
+```hcl
+Set Audit Action Groups (Schema & Security Only) Set-AzSqlServerAudit -ResourceGroupName 'rg-hopeful-monkey' ` -ServerName 'sql-rg-hopeful-monkey' ` -AuditActionGroup APPLICATION_ROLE_CHANGE_PASSWORD_GROUP, DATABASE_CHANGE_GROUP, ` DATABASE_OBJECT_CHANGE_GROUP, DATABASE_OBJECT_OWNERSHIP_CHANGE_GROUP, ` DATABASE_OBJECT_PERMISSION_CHANGE_GROUP, ` DATABASE_OWNERSHIP_CHANGE_GROUP, ` DATABASE_PERMISSION_CHANGE_GROUP, DATABASE_PRINCIPAL_CHANGE_GROUP, ` DATABASE_PRINCIPAL_IMPERSONATION_GROUP, ` DATABASE_ROLE_MEMBER_CHANGE_GROUP, ` SCHEMA_OBJECT_CHANGE_GROUP, SCHEMA_OBJECT_OWNERSHIP_CHANGE_GROUP, ` SCHEMA_OBJECT_PERMISSION_CHANGE_GROUP, USER_CHANGE_PASSWORD_GROUP
+
+For now, I’m keeping the defaults so I can monitor all database activity. I’ll update this post once I figure out how to configure audit action groups using Terraform.
+
+### Querying Audit Data
+
+### Learn Kusto
+
+Here’s a helpful Kusto tutorial. Kusto is:
+
+Very powerful
+
+Easy to use
+
+Similar to **SQL** (if you already know **SQL**)
+
+Workspace Summary (Deprecated)
+
+The Workspace Summary dashboard is being deprecated, but it has been very useful.
+
+It previously provided a helpful dashboard view of audit data.
+
+Microsoft is replacing it with Workbooks. I’m currently exploring how to recreate the Workspace Summary experience using Workbooks.
+
+For now, I’m still using Workspace Summary since it hasn't been fully removed.
+
+### Running Kusto Queries
+
+In the Log Analytics Workspace:
+
+### Click Logs
+
+Run your Kusto queries
+
+Example 1: Busiest Databases
+```hcl
+AzureDiagnostics
+| summarize QueryCountByDB = count() by database_name_s
+
+Example 2: Detailed Activity in the Last Day
+```hcl
+AzureDiagnostics
+| where Category == 'SQLSecurityAuditEvents'
+   and TimeGenerated > ago(1d) 
+| project
+    event_time_t,
+    action_name_s,
+    database_name_s,
+    statement_s,
+    server_principal_name_s,
+    succeeded_s,
+    client_ip_s,
+    application_name_s,
+    additional_information_s,
+    data_sensitivity_information_s
+| order by event_time_t desc
+
