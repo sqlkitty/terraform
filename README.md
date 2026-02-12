@@ -395,3 +395,199 @@ AzureDiagnostics
     data_sensitivity_information_s
 | order by event_time_t desc
 ```
+
+
+## Azure SQL DB Module Structure 
+A well-structured Terraform module for Azure SQL DB typically consists of the following elements:
+
+Main Configuration Files: main.tf, variables.tf, outputs.tf 
+Helper Files: (if necessary) locals.tf, providers.tf, etc. 
+If you want to learn more about the basics of Terraform, you can visit my previous blog post.
+
+Writing the Azure SQL DB Module I used to have a sqldb.tf file that held all the TF to create my Azure SQL databases and associated bits like the server, the databases, and the firewall rules. It’s considered best practice to modulize your Terraform. I may also add more to this module, like alerts and auditing, but I’m keeping those un-modulized for now.
+
+You’ll typically organize your code into several files within a directory to create a Terraform module for provisioning Azure SQL DB. Here’s an example of how you might structure your module. You can name your module what you like. I chose azuresqlserver.
+
+### Directory Structure
+
+azuresqlserver/
+    ├── main.tf
+    ├── variables.tf
+    └── outputs.tf
+
+### Module File Explanation
+
+main.tf This file contains the actual Azure resources and their configurations using the Azure provider. Here’s an example of how it might look for Azure **SQL** DB:
+
+# main.tf
+
+```hcl
+provider "azurerm" { features {} }
+
+resource "random_password" "password" {
+    length           = 16
+    special          = true
+
+resource "azurerm_mssql_server" "example" {
+    name                         = var.sql_server_name
+    resource_group_name          = var.resource_group_name
+    location                     = var.location
+    version                      = var.db_version
+    administrator_login          = var.administrator_login
+    administrator_login_password = var.administrator_password  
+  
+    azuread_administrator {
+    login_username = var.azuread_administrator
+    object_id      = var.object_id
+    }
+}
+
+resource "azurerm_mssql_database" "exampledb" { for_each = { for idx, db in var.databases : idx => db }
+
+    name         = each.value.name
+    server_id    = each.value.server_id
+    create_mode  = each.value.create_mode
+    sku_name     = each.value.sku_name
+    collation    = each.value.collation
+}
+
+resource "azurerm_mssql_firewall_rule" "examplefirewall" { for_each = { for idx, rule in var.firewall_rules : idx => rule }
+
+    name             = *rule-${each.value.name}*
+    server_id        = azurerm_mssql_server.example.id
+    start_ip_address = each.value.start_ip_address
+    end_ip_address   = each.value.end_ip_address
+}
+```
+
+variables.tf This file defines input variables for your module. These variables can be customized when using the module in the main Terraform configuration. Based on the main.tf file above you will need these variables:
+
+# variables.tf
+
+```hcl
+variable "resource_group_name" {
+    description = "Name of the Azure resource group"
+    type        = string
+}
+
+variable "sql_server_name" {
+    description = "Name of the Azure SQL Server"
+    type        = string
+}
+
+variable "location" {
+    description = "Azure region"
+    type        = string
+}
+
+variable "db_version" {
+    description = "Version of the Azure SQL Database"
+    type        = string
+}
+
+variable "administrator_login" {
+    description = "Admin of the Azure SQL Database"
+    type        = string
+}
+
+variable "administrator_password" {
+    description = "Admin of the Azure SQL Database"
+    type        = string
+}
+
+variable "azuread_administrator" {
+    description = "AD Admin of the Azure SQL Database"
+    type        = string
+}
+
+variable "object_id" {
+    description = "Object ID for AD Admin"
+    type        = string
+}
+  
+variable "firewall_rules" {
+    description = "List of firewall rules"
+    type        = list(object({
+    name             = string
+    start_ip_address = string
+    end_ip_address   = string
+    }))
+}
+
+variable "databases" {
+    description = "List of databases"
+    type        = list(object({
+    name        = string
+    server_id   = string
+    create_mode = string
+    sku_name    = string
+    collation   = string
+    }))
+}
+```
+
+outputs.tf This file specifies the output values that the module will provide after deployment. These outputs can be used in the main Terraform configuration or by other modules that consume this module. I only output one item here because I need to use it to refer to the server ID in another call.
+
+# outputs.tf
+
+output "sql_server_id" {
+    value = azurerm_mssql_server.example.id
+}
+
+Using the Module To use this module in your main Terraform configuration, you can add this to your main.tf file or whatever file you want to use for creating Azure SQL DB, as you don’t have to use main.tf This code snippet shows how to use the azuresqlserver module, providing specific values for the required variables. Adjust the variable values according to your Azure setup and requirements:
+
+```hcl
+#creates resource group resource "random_pet" "rg_name" { prefix = var.resource_group_name_prefix }
+
+resource "azurerm_resource_group" "rg" {
+    location = var.resource_group_location
+    name     = random_pet.rg_name.id
+}
+
+#reference azuresqldb module to create azuresqlserver 
+module "azuresqlserver" {
+    source = "./modules/azuresqlserver"
+    sql_server_name              = "sql2-${azurerm_resource_group.rg.name}"
+    resource_group_name          = random_pet.rg_name.id
+    location                     = var.resource_group_location
+    db_version                   = "12.0"
+    administrator_login          = "sqladmin"
+    administrator_password       = "passwordstr0ng!"
+    azuread_administrator        = "jb.onmicrosoft.com"
+    object_id                    = "edd56623-e123"
+    #create 1 or more dbs 
+    databases = [
+    {
+    name         = "dbnew1-${azurerm_resource_group.rg.name}"
+    server_id    = module.azuresqlserver.sql_server_id
+    create_mode  = "Default"
+    sku_name     = "Basic"
+    collation    = "SQL_Latin1_General_CP1_CI_AS"
+    },
+    {
+    name         = "dbnew2-${azurerm_resource_group.rg.name}"
+    server_id    = module.azuresqlserver.sql_server_id
+    create_mode  = "Default"
+    sku_name     = "Basic"
+    collation    = "SQL_Latin1_General_CP1_CI_AS"
+    },
+    ]
+    #create one or more firewall rules 
+    firewall_rules = [
+    {
+    name             = "my-ip"
+    start_ip_address = "11.11.11.11"
+    end_ip_address   = "11.11.11.11"
+    },
+    {
+    name             = "allow-azure-services"
+    start_ip_address = "0.0.0.0"
+    end_ip_address   = "0.0.0.0"
+    }
+    ]
+}
+```
+
+Before applying this, you must run terraform init to install the module.
+
+Conclusion Creating a Terraform module for Azure SQL DB empowers you to abstract and reuse infrastructure components effectively. Modularizing your infrastructure code facilitates easier maintenance, scalability, and consistency across deployments.
