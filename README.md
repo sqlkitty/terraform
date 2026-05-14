@@ -1,5 +1,147 @@
 # Terraform 
 
+# Terraform Commands
+
+## Prerequisites
+
+The deployment happens through the Terraform CLI, which you can run inside VS Code’s terminal. And you need to have all the Terraform components for this to work. This post assumes you have Terraform installed and your VS Code ready to go.
+
+## Most Common Terraform Commands
+
+1. `terraform init` – Initialize the working directory, download providers, and set up the backend.
+2. `terraform validate` – Check the configuration for syntax errors.
+3. `terraform fmt` – Format Terraform files into standard style.
+4. `terraform plan` – Show what changes Terraform will make without applying them.
+5. `terraform apply` – Apply the planned changes to create or update resources.
+6. `terraform destroy` – Remove all resources defined in the configuration.
+7. `terraform output` – Display output values from the configuration.
+8. `terraform state list` – List all resources Terraform is tracking.
+
+But I mainly use a subset of these.
+
+## Executing Terraform Commands
+
+If you don’t see your terminal in VS Code, you can go to `View → Terminal` to display it. And that opens a terminal at the bottom of the screen.
+
+---
+
+## terraform init – Initialize Your Terraform Project
+
+Before Terraform can create or manage infrastructure, your working directory needs to be prepared.
+
+When you run `terraform init`, Terraform will:
+
+1. Set up the backend
+
+   This is where Terraform stores the state file that tracks your infrastructure.
+
+   - By default, it’s stored locally in your project folder as `terraform.tfstate`.
+
+2. Download providers
+
+   Terraform uses providers (AWS, Azure, GCP, Kubernetes, etc.) to talk to different services.
+
+   - It looks at your `.tf` files, sees which providers you declared, and downloads the correct versions from the Terraform Registry.
+
+3. Install modules
+
+   If your configuration uses modules (reusable Terraform code), `terraform init` will fetch them.
+
+**Important:** You must run `terraform init` at least once before `terraform plan` or `terraform apply`.
+
+Also, if you change provider versions or backend settings, you should run it again to refresh everything.
+
+---
+
+## terraform plan – Preview What Changes Terraform Will Make
+
+The `terraform plan` command shows you exactly what Terraform will do before it makes any changes to your infrastructure. It compares the current state of your resources (from the state file) with your configuration files and then displays a list of additions, changes, and deletions it would make to bring your infrastructure in line with your code.
+
+You’ll see:
+
+- Resources to be created (marked with a plus sign `+`)
+- Resources to be updated (marked with a tilde `~`)
+- Resources to be destroyed (marked with a minus sign `-`)
+
+Running `terraform plan` is a good safety step because it lets you confirm that Terraform understood your intentions before you make changes. Many people run `plan` before they apply to avoid surprises.
+
+In my case, I used to always run `terraform plan` first, but I don’t anymore because `terraform apply` itself shows you the same plan and still asks for approval before making changes. This means if you trust your configuration and are comfortable skipping the extra step, you can just run `terraform apply` directly and approve the plan when prompted.
+
+Before you can run `terraform plan`, you need to run `az login` (in my case, since I’m using Azure with Terraform) to authenticate to your subscription.
+
+After you run `terraform plan`, it will show you things like additions, changes, or resources missing from the current state. Sometimes this happens because things were changed outside Terraform.
+
+I don’t want to add all that stuff back in, so in that case, I move any Terraform files I don’t want to be applied into a subfolder. My `ignorefornow` subfolder holds anything that’s broken or I don’t want to use currently. I also comment out things in my `main.tf` file, so they won’t try to create it if I don’t want them back in place.
+
+But the good news is, there aren’t any errors with my plan, so I’m going to move on to apply.
+
+---
+
+## terraform apply – Apply Changes to Create or Update Infrastructure
+
+The `terraform apply` command is the one that makes changes to your infrastructure.
+
+One of the best things about `terraform apply` is that it first shows you a plan of what it will do. You’ll see a list of resources that will be added, changed, or destroyed before any action is taken, giving you a chance to review everything carefully.
+
+I like this command the most because it combines planning and applying in one step. I always carefully look at the destroy section in particular, but also the changes. Additions aren’t so risky.
+
+I moved some of my `.tf` files into the `ignorefornow` folder and commented out some things from my `main.tf`, so that I only have a few things to destroy and the one thing I want to add at this point.
+
+Now, with `terraform apply`, it asks you if you want to perform these actions.
+
+I typed `yes` because I was ready to apply these changes, and it applied my changes successfully.
+
+Also, I wanted a new random pet name for my resource group.
+
+Note for myself:
+
+```bash
+terraform apply -replace="random_pet.rg_name"
+```
+
+---
+
+## terraform destroy – Delete Infrastructure Created by Terraform
+
+The `terraform destroy` command is used to completely remove resources that Terraform manages.
+
+It reads your current state and configuration files and then deletes everything defined in your project.
+
+This command is particularly useful when you want to clean up test environments or remove a bunch of resources at once without manually deleting each one.
+
+Because destroy can be destructive, Terraform will first show you a plan of what will be removed and ask for your approval before actually deleting anything.
+
+I rarely use `terraform destroy`, but it’s handy if you need to start over or avoid leaving unused resources running.
+
+What if you only want to destroy one thing? Comment it out from your code or move that file into a subfolder. It’s not recommended to use the `-target` flag on the destroy command because it can leave your infrastructure in an inconsistent state.
+
+---
+
+## terraform fmt – Format .tf files for Readability and Consistency
+
+The `terraform fmt` command automatically formats your Terraform configuration files so they follow the standard style and conventions.
+
+It ensures that indentation, spacing, and alignment are consistent across all `.tf` files in your project.
+
+I think this could be one of my new favorite Terraform commands because it’s so simple but so effective. It doesn’t change the logic of your configuration, only the formatting, but it makes a big difference in readability.
+
+You can run it on a single file:
+
+```bash
+terraform fmt main.tf
+```
+
+Or on your entire project:
+
+```bash
+terraform fmt
+```
+
+Terraform doesn’t have to be intimidating. By getting comfortable with these top five commands, you have what you need to get going.
+
+Start with `init`, use `plan` to preview changes, `apply` to make them real, `destroy` when you need a clean slate, and `fmt` to keep your code tidy.
+
+
 # Getting Started with Terraform for Azure SQL Database
 
 I did it like this. Is it the right way? Maybe. I'm giving you my steps so you know how this process could work.
@@ -13,71 +155,9 @@ I did it like this. Is it the right way? Maybe. I'm giving you my steps so you k
 5. Run `az login` – this will log you into your Azure account so that you can create resources with Terraform
 
 
-### Most Common Terraform Commands
 
-* terraform init – Initialize the working directory, download providers, and set up the backend. 
-* terraform validate – Check the configuration for syntax errors. 
-* terraform fmt – Format Terraform files into standard style. 
-* terraform plan – Show what changes Terraform will make without applying them. 
-* terraform apply – Apply the planned changes to create or update resources. 
-* terraform destroy – Remove all resources defined in the configuration. 
-* terraform output – Display output values from the configuration. 
-* terraform state list – List all resources Terraform is tracking. 
-
-But I mainly use a subset of these.
-
-### Executing Terraform Commands
-
-If you don’t see your terminal in VS Code, you can go to View –> Terminal to display it. And that opens a terminal at the bottom of the screen.
-
-**terraform init** – Initialize Your Terraform Project Before Terraform can create or manage infrastructure, your working directory needs to be prepared. When you run terraform init, Terraform will:
-
-Set up the backend – This is where Terraform stores the state file that tracks your infrastructure. By default, it’s stored locally in your project folder as terraform.tfstate. Download providers – Terraform uses providers (**AWS**, Azure, **GCP**, Kubernetes, etc.) to talk to different services. It looks at your .tf files, sees which providers you declared, and downloads the correct versions from the Terraform Registry. Install modules – If your configuration uses modules (reusable Terraform code), terraform init will fetch them. Important: You must run terraform init at least once before terraform plan or terraform apply. Also, if you change provider versions or backend settings, you should run it again to refresh everything.
-
-
-**terraform plan** – Preview What Changes Terraform Will Make The terraform plan command shows you exactly what Terraform will do before it makes any changes to your infrastructure. It compares the current state of your resources (from the state file) with your configuration files and then displays a list of additions, changes, and deletions it would make to bring your infrastructure in line with your code.
-
-Resources to be created (marked with a plus sign +) Resources to be updated (marked with a tilde ~) Resources to be destroyed (marked with a minus sign -) Running terraform plan is a good safety step because it lets you confirm that Terraform understood your intentions before you make changes. Many people run plan before they apply to avoid surprises.
-
-In my case, I used to always run terraform plan first, but I don’t anymore because terraform apply itself shows you the same plan and still asks for approval before making changes. This means if you trust your configuration and are comfortable skipping the extra step, you can just run terraform apply directly and approve the plan when prompted.
-
-Before you can run terraform plan, you need to run az login (in my case, since I’m using Azure with Terraform) to authenticate to your subscription.
-
-After you run terraform plan, it will show you things like these, but it all depends on whether you’ve changed things outside Terraform or not, and if you are adding new things. But just to give you an example of some of the results I’m seeing right now. I blew away an entire resource group, but didn’t use Terraform. I don’t recommend doing it that way, especially if you have your resources in Terraform, but I felt like doing that in my personal environment one day.
-
-I don’t want to add all that stuff back in, so in that case, I move any Terraform files, I don’t want to be applied into a subfolder. My ignorefornow subfolder holds anything that’s broken or I don’t want to use currently. I also comment out things in my main.tf file, so they won’t try to create it if I don’t want them back in place.
-
-But the good news is, there aren’t any errors with my plan, so I’m going to move on to apply.
-
-**terraform apply** – Apply Changes to Create or Update Infrastructure The terraform apply command is the one that makes changes to your infrastructure. One of the best things about terraform apply is that it first shows you a plan of what it will do. You’ll see a list of resources that will be added, changed, or destroyed before any action is taken, giving you a chance to review everything carefully.
-
-I like this command the most because it combines planning and applying in one step. I like this one the best because it plans and then displays everything it’s going to add, change, or destroy. I always carefully look at the destroy in particular, but also the changes. Additions aren’t so risky.
-
-I moved some of my tf files into the ignorefornow folder and commented out some things from my main.tf, so that I only have a few things to destroy and the one thing I want to add at this point. Now, with terraform apply, it asks you if you want to perform these actions.
-
-I typed yes because I was ready to apply these changes, and it applied my changes successfully.
-
-Also, I wanted a new random pet name for my resource group. Note for myself: I can do this with terraform apply -replace=”random_pet.rg_name”
-
-**terraform destroy** – Delete Infrastructure Created by Terraform The terraform destroy command is used to completely remove resources that Terraform manages. It reads your current state and configuration files and then deletes everything defined in your project.
-
-This command is particularly useful when you want to clean up test environments or remove a bunch of resources at once without manually deleting each one. Because destroy can be destructive (imagine that!), Terraform will first show you a plan of what will be removed and ask for your approval before actually deleting anything.
-
-I rarely use terraform destroy, but it’s handy if you need to start over or avoid leaving unused resources running.
-
-What if you only want to destroy one thing? Comment it out from your code or move that file into a subfolder. It’s not recommended to use the -target flag on the destroy command because it can leave your infra in an inconsistent state.
-
-**terraform fmt** – Format .tf files for Readability and Consistency The terraform fmt command automatically formats your Terraform configuration files so they follow the standard style and conventions. It ensures that indentation, spacing, and alignment are consistent across all .tf files in your project.
-
-I think this could be one of my new favorite Terraform commands because it’s so simple but so effective. It doesn’t change the logic of your configuration, only the formatting, but it makes a big difference in readability.
-
-You can run it on a single file: terraform fmt main.tf
-
-Or on your entire project: terraform fmt
 
 ## Terraform Components
-
-Now you can create a few files to support your Terraform process:
 
 - **main.tf** – This holds the code for the resources you will create. In my case, I put the resource group and server, and db setup in this file.
 - **output.tf** – This holds anything you want to output to the terminal after Terraform runs.
