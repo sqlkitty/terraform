@@ -1,3 +1,11 @@
+locals {
+  now                  = timestamp()
+  days_until_sat       = (6 - tonumber(formatdate("D", local.now)) + 7) % 7
+  next_saturday        = timeadd(formatdate("YYYY-MM-DD'T'04:00:00Z", local.now),"${local.days_until_sat * 24}h")
+  today_4am_utc    = formatdate("YYYY-MM-DD'T'04:00:00Z", local.now)
+  next_4am_utc     = timecmp(local.today_4am_utc, local.now) > 0 ? local.today_4am_utc : timeadd(local.today_4am_utc, "24h")
+}
+
 resource "azurerm_mssql_database" "elastic_jobs_db" {
   name        = "dbelastic-${var.resource_group_name}"
   server_id   = var.sql_server_id
@@ -56,7 +64,7 @@ resource "azapi_resource" "jobstats" {
       description = "Runs ola stats update only on all dbs in the target group"
       schedule = {
         enabled   = true
-        startTime = "2026-02-12T23:00:00Z" # set to future date so it doesn't run right away  
+        startTime = local.next_4am_utc # set to future date so it doesn't run right away  
         endTime   = "9999-12-31T11:59:59Z"
         interval  = "P1D"
         type      = "Recurring"
@@ -74,7 +82,7 @@ resource "azapi_resource" "statupdatestep" {
       action = {
         source = "Inline"
         type   = "TSql"
-        value  = "EXECUTE [dbo].[IndexOptimize]\n            @Databases = 'USER_DATABASES' ,\n            @FragmentationLow = NULL ,\n            @FragmentationMedium = NULL ,\n            @FragmentationHigh = NULL ,\n            @UpdateStatistics = 'ALL' ,\n            @LogToTable = 'Y';"
+        value  = file("${path.module}/SQLJobs/statsupdate.sql")
       }
       stepId      = 1
       targetGroup = azapi_resource.targetgroup.id
@@ -91,7 +99,7 @@ resource "azapi_resource" "cmdlogcleanupstep" {
       action = {
         source = "Inline"
         type   = "TSql"
-        value  = "DELETE FROM [dbo].[CommandLog]\n              WHERE StartTime <= DATEADD(DAY, -30, GETDATE());"
+        value  = file("${path.module}/SQLJobs/cleanup.sql")
       }
       targetGroup = azapi_resource.targetgroup.id
     }
@@ -107,7 +115,7 @@ resource "azapi_resource" "jobindexmaint" {
       description = "Runs ola stats update only on all dbs in the target group"
       schedule = {
         enabled   = true
-        startTime = "2026-02-15T04:00:00Z"  # 4am UTC on Saturdays set to future date so it doesn't run right away  
+        startTime = local.next_saturday  # 4am UTC on Saturdays set to future date so it doesn't run right away  
         endTime   = "9999-12-31T11:59:59Z"
         interval  = "P7D"  # 7 days
         type      = "Recurring"
@@ -125,10 +133,32 @@ resource "azapi_resource" "indexmaintstep" {
       action = {
         source = "Inline"
         type   = "TSql"
-        value  = "EXECUTE dba.IndexOptimize @Databases = 'USER_DATABASES', @MinNumberOfPages = 100, @FragmentationLow = NULL, @FragmentationMedium = 'INDEX_REORGANIZE, INDEX_REBUILD_ONLINE', @FragmentationHigh = 'INDEX_REBUILD_ONLINE, INDEX_REORGANIZE', @FragmentationLevel1 = 50, @FragmentationLevel2 = 80, @LogToTable = 'Y';"
+        value  = file("${path.module}/SQLJobs/indexmaintenance.sql")
       }
       stepId      = 1
       targetGroup = azapi_resource.targetgroup.id
     }
   })
+}
+
+resource "azurerm_monitor_metric_alert" "elastic_job_failure_alert" {
+  name                = "ElasticJobFailureAlert"
+  resource_group_name = var.resource_group_name
+  scopes              = [azapi_resource.elasticjobagent.id]
+  /*scopes              = ["/subscriptions/edda3b24-4311-437d-8084-ac3b3bb67cfc/resourceGroups/${var.resource_group_name}/providers/Microsoft.Sql/servers/${var.sql_server_name}/jobAgents/${azurerm_sql_job_agent.elasticjobagent.name}"]*/
+  severity            = 1
+  window_size         = "P1D"
+  frequency           = "PT1H"
+
+  criteria {
+    metric_namespace = "Microsoft.Sql/servers/jobAgents"
+    metric_name      = "elastic_jobs_failed"
+    aggregation      = "Total"
+    operator         = "GreaterThan"
+    threshold        = 0
+  }
+
+  action {
+    action_group_id = var.action_group_id
+  }
 }

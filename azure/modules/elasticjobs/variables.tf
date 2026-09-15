@@ -27,3 +27,7 @@ variable "db_max_size_gb" {
   type    = number
   default = 10
 }
+
+variable "action_group_id" {
+  type = string
+}

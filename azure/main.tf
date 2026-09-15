@@ -8,6 +8,12 @@ resource "azurerm_resource_group" "rg" {
   name     = random_pet.rg_name.id
 }
 
+module "azureactiongroup" {
+  source              = "./modules/azureactiongroup"
+  resource_group_name = random_pet.rg_name.id
+
+  depends_on = [azurerm_resource_group.rg]
+}
 
 module "azuresqlserver" {
   source                 = "./modules/azuresqlserver"
@@ -70,6 +76,7 @@ module "elasticjobs" {
   sql_server_id       = module.azuresqlserver.sql_server_id
   sql_server_name     = module.azuresqlserver.sql_server_name
   elastic_pool_name   = module.azuresqlserver.elastic_pool_name
+  action_group_id     = module.azureactiongroup.action_group_id
 
   depends_on = [azurerm_resource_group.rg]
 }
